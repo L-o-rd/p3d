@@ -1,0 +1,113 @@
+#version 410 core
+
+layout (quads, equal_spacing, ccw) in;
+in vec2 tess_Coord[];
+out vec4 frag_Color;
+out vec3 FragPos;
+out vec3 Normal;
+out vec3 inLightPos;
+out vec3 inViewPos;
+out vec3 WorldPos;
+out vec4 FLights[4];
+out vec4 FWorlds[4];
+
+uniform mat4 projection;
+uniform vec3 lightPos;
+uniform vec3 viewPos;
+uniform mat4 model;
+uniform mat4 view;
+
+float random (in vec2 st) {
+    return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+}
+
+float noise (in vec2 st) {
+    vec2 i = floor(st);
+    vec2 f = fract(st);
+
+    float a = random(i);
+    float b = random(i + vec2(1.0, 0.0));
+    float c = random(i + vec2(0.0, 1.0));
+    float d = random(i + vec2(1.0, 1.0));
+
+    vec2 u = f * f * (3.0 - 2.0 * f);
+
+    return mix(a, b, u.x) +
+            (c - a)* u.y * (1.0 - u.x) +
+            (d - b) * u.x * u.y;
+}
+
+#define OCTAVES 6
+
+float fbm (in vec2 _st) {
+    float v = 0.0;
+    float a = 0.5;
+    vec2 shift = vec2(100.0);
+    mat2 rot = mat2(cos(0.5), sin(0.5),
+                    -sin(0.5), cos(0.50));
+    for (int i = 0; i < OCTAVES; ++i) {
+        v += a * noise(_st);
+        _st = rot * _st * 2.0 + shift;
+        a *= 0.5;
+    }
+
+    return v;
+}
+
+#undef OCTAVES
+
+vec3 colour(float height) {
+	if (height < 30.0) {
+        return vec3(0.05, 0.35 * (height * height / 30.0 / 30.0), 0.05);
+    }
+    
+    float percent = (height - 30.0) / 44.0;
+    return vec3(percent + 0.2);
+}
+
+uniform mat4 lights;
+
+void main() {
+    float u = gl_TessCoord.x;
+    float v = gl_TessCoord.y;
+
+    vec2 t00 = tess_Coord[0];
+    vec2 t01 = tess_Coord[1];
+    vec2 t10 = tess_Coord[2];
+    vec2 t11 = tess_Coord[3];
+
+    vec2 t0 = (t01 - t00) * u + t00;
+    vec2 t1 = (t11 - t10) * u + t10;
+    vec2 coord = (t1 - t0) * v + t0;
+
+    float height = fbm((coord / 48.0)) * 64.0;
+
+    vec4 p00 = gl_in[0].gl_Position;
+    vec4 p01 = gl_in[1].gl_Position;
+    vec4 p10 = gl_in[2].gl_Position;
+    vec4 p11 = gl_in[3].gl_Position;
+    
+    vec4 pu = p01 - p00;
+    vec4 pv = p10 - p00;
+    vec4 norm = normalize(vec4(cross(pv.xyz, pu.xyz), 0));
+    Normal = norm.xyz;
+
+    vec4 p0 = (p01 - p00) * u + p00;
+    vec4 p1 = (p11 - p10) * u + p10;
+    vec4 p = (p1 - p0) * v + p0;
+
+    p += norm * height;
+
+    gl_Position = projection * view * model * p;
+    inLightPos = vec3(projection * view * vec4(lightPos, 1.0f));
+    inViewPos = vec3(projection * view * vec4(viewPos, 1.0f));
+    WorldPos = vec3(model * p);
+    FragPos = gl_Position.xyz;
+
+    for (int i = 0; i < 4; ++i) {
+        FLights[i] = projection * view * model * lights[i];
+        FWorlds[i] = lights[i];
+    }
+
+    frag_Color = vec4(colour(height), 1);
+}
